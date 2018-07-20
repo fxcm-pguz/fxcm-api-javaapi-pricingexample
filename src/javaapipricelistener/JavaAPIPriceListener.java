@@ -1,8 +1,3 @@
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
 package javaapipricelistener;
 
 import com.fxcm.external.api.transport.FXCMLoginProperties;
@@ -10,32 +5,30 @@ import com.fxcm.external.api.transport.GatewayFactory;
 import com.fxcm.external.api.transport.IGateway;
 import com.fxcm.external.api.transport.listeners.IGenericMessageListener;
 import com.fxcm.external.api.transport.listeners.IStatusMessageListener;
+import com.fxcm.fix.SubscriptionRequestTypeFactory;
+import com.fxcm.fix.pretrade.MarketDataRequest;
 import com.fxcm.fix.pretrade.MarketDataSnapshot;
+import com.fxcm.fix.pretrade.TradingSessionStatus;
 import com.fxcm.messaging.ISessionStatus;
 import com.fxcm.messaging.ITransportable;
 
-/**
- *
- * @author pguz
- */
 public class JavaAPIPriceListener implements IGenericMessageListener, IStatusMessageListener {
 
 	private final IGateway gateway;
 	private FXCMLoginProperties loginProperties;
+	private TradingSessionStatus tradingSessionStatus;
 
 	private String username;
 	private String password;
 	private String station;
 	private String server;
 
-	/**
-	 * @param args the command line arguments
-	 */
 	public static void main(String[] args) throws Exception {
 		JavaAPIPriceListener japl = new JavaAPIPriceListener();
 		japl.loadConfig();
 		japl.login();
 		System.in.read();
+		japl.logout(); // to make the example simple this may throw a "socket closed" error on disconnect
 	}
 
 	public JavaAPIPriceListener() {
@@ -43,7 +36,7 @@ public class JavaAPIPriceListener implements IGenericMessageListener, IStatusMes
 	}
 
 	public boolean loadConfig() {
-		return loadConfig("d161038313", "1234", "Demo", "http://www.fxcorporate.com/Hosts.jsp");
+		return loadConfig("USERNAME", "PASSWORD", "Demo", "http://www.fxcorporate.com/Hosts.jsp"); // please populate with username and password
 	}
 
 	public boolean loadConfig(String username, String password, String station, String server) {
@@ -63,26 +56,48 @@ public class JavaAPIPriceListener implements IGenericMessageListener, IStatusMes
 	public boolean login() throws Exception {
 		this.gateway.registerGenericMessageListener(this);
 		this.gateway.registerStatusMessageListener(this);
-		this.gateway.login(loginProperties);
-		this.gateway.requestTradingSessionStatus();
+		this.gateway.login(this.loginProperties);
+		this.gateway.requestTradingSessionStatus(); // account remembers subscription status between logins and will start stremaing automatically after requesting trading session status
 		return this.gateway.isConnected();
+	}
+
+	public void subscribe() {
+		MarketDataRequest mdr = new MarketDataRequest();
+		mdr.addRelatedSymbol(this.tradingSessionStatus.getSecurity("EUR/USD")); // as trading session status is required to properly build a subscription request, call it only after it is received
+		mdr.setSubscriptionRequestType(SubscriptionRequestTypeFactory.SUBSCRIBE);
+		mdr.setMDEntryTypeSet(MarketDataRequest.MDENTRYTYPESET_ALL);
+		try {
+			this.gateway.sendMessage(mdr);
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+
+	public void logout() throws Exception {
+		this.gateway.logout();
 	}
 
 	@Override
 	public void messageArrived(ITransportable it) {
-		System.out.println(it.toString());
-//		if (it instanceof MarketDataSnapshot) {
-//			this.messageArrived((MarketDataSnapshot) it);
-//		}
+		if (it instanceof MarketDataSnapshot) {
+			this.messageArrived((MarketDataSnapshot) it);
+		} else if (it instanceof TradingSessionStatus) {
+			this.messageArrived((TradingSessionStatus) it);
+		}
 	}
 
 	public void messageArrived(MarketDataSnapshot mds) {
 		System.out.println(mds.toString());
 	}
+	
+	public void messageArrived(TradingSessionStatus tss) {
+		System.out.println("tss");
+		this.tradingSessionStatus = tss;
+		this.subscribe(); // call subscribe only after we get trading session status
+	}
 
 	@Override
 	public void messageArrived(ISessionStatus iss) {
-		// do nothing
+		// not required for this example
 	}
-
 }
